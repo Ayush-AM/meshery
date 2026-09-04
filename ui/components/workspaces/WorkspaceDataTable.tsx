@@ -5,8 +5,8 @@ import {
   useGetWorkspacesQuery,
   useUnassignEnvironmentFromWorkspaceMutation,
 } from '@/rtk-query/workspace';
-
 import { useNotificationHandlers } from '@/utils/hooks/useNotification';
+import MultiSelectWrapper from '@/components/general/multi-select-wrapper';
 import { Keys } from '@meshery/schemas/permissions';
 import { getColumnValue } from '@/utils/utils';
 import {
@@ -21,17 +21,108 @@ import {
   updateVisibleColumns,
   useTheme,
   useWindowDimensions,
-  WorkspaceEnvironmentSelection,
   WorkspaceIcon,
   Slide,
   ErrorBoundary,
   useHasPermission,
 } from '@sistent/sistent';
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { iconSmall } from 'css/icons.styles';
 import WorkSpaceContentDataTable from './WorkSpaceContentDataTable';
 import WorkspaceActionList from './WorkspaceActionList';
 import { useGetSelectedOrganization } from '@/rtk-query/user';
+
+interface EnvironmentOption {
+  label: string;
+  value: string;
+}
+
+interface WorkspaceEnvironmentSelectorProps {
+  workspaceId: string;
+  isAssignedEnvironmentAllowed?: boolean;
+}
+
+const WorkspaceEnvironmentSelector = ({
+  workspaceId,
+  isAssignedEnvironmentAllowed = true,
+}: WorkspaceEnvironmentSelectorProps) => {
+  const { handleSuccess, handleError } = useNotificationHandlers();
+
+  const { data: availableData } = useGetEnvironmentsOfWorkspaceQuery({
+    workspaceId,
+    page: 0,
+    pagesize: 'all',
+    filter: '{"assigned":false}',
+  });
+
+  const { data: assignedData } = useGetEnvironmentsOfWorkspaceQuery({
+    workspaceId,
+    page: 0,
+    pagesize: 'all',
+  });
+
+  const [assignEnvironmentToWorkspace] = useAssignEnvironmentToWorkspaceMutation();
+  const [unassignEnvironmentFromWorkspace] = useUnassignEnvironmentFromWorkspaceMutation();
+
+  const options: EnvironmentOption[] =
+    availableData?.environments?.map((env: { name: string; id: string }) => ({
+      label: env.name,
+      value: env.id,
+    })) || [];
+
+  const value: EnvironmentOption[] =
+    assignedData?.environments?.map((env: { name: string; id: string }) => ({
+      label: env.name,
+      value: env.id,
+    })) || [];
+
+  const handleChange = (selected: EnvironmentOption[], unselected: EnvironmentOption[]): void => {
+    const newlySelected = selected.filter((opt) => !value.some((v) => v.value === opt.value));
+    newlySelected.forEach(({ value: envId, label: envName }) => {
+      assignEnvironmentToWorkspace({ workspaceId, environmentId: envId })
+        .unwrap()
+        .then(() => handleSuccess(`Environment "${envName}" assigned`))
+        .catch((err: { data: string }) =>
+          handleError(`Environment "${envName}" Assign Error: ${err?.data}`),
+        );
+    });
+
+    const newlyUnselected = Array.isArray(unselected) ? unselected : [];
+    newlyUnselected.forEach(({ value: envId, label: envName }) => {
+      unassignEnvironmentFromWorkspace({ workspaceId, environmentId: envId })
+        .unwrap()
+        .then(() => handleSuccess(`Environment "${envName}" unassigned`))
+        .catch((err: { data: string }) =>
+          handleError(`Environment "${envName}" Unassign Error: ${err?.data}`),
+        );
+    });
+  };
+
+  return (
+    <Box
+      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      sx={{
+        width: '100%',
+        minWidth: '14rem',
+        maxWidth: '18rem',
+        marginBlock: '0.25rem',
+      }}
+    >
+      <MultiSelectWrapper
+        options={options}
+        value={value}
+        onChange={handleChange}
+        placeholder="Assigned Environment"
+        disabled={!isAssignedEnvironmentAllowed}
+        isClearable={false}
+        menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+        menuPosition="fixed"
+        menuPlacement="auto"
+        inputProps={{ 'aria-label': 'Workspace Environments' }}
+      />
+    </Box>
+  );
+};
 
 const WorkspaceDataTable = ({
   handleWorkspaceModalOpen,
@@ -171,6 +262,11 @@ const WorkspaceDataTable = ({
       options: {
         sort: false,
         sortThirdClickReset: true,
+        setCellProps: () => ({
+          style: {
+            overflow: 'visible',
+          },
+        }),
         customHeadRender: function CustomHead({ ...column }) {
           return (
             <>
@@ -207,14 +303,8 @@ const WorkspaceDataTable = ({
         customBodyRender: (value, tableMeta) => {
           const workspaceId = getColumnValue(tableMeta.rowData, 'id', columns);
           return (
-            <WorkspaceEnvironmentSelection
+            <WorkspaceEnvironmentSelector
               workspaceId={workspaceId}
-              useAssignEnvironmentToWorkspaceMutation={useAssignEnvironmentToWorkspaceMutation}
-              useGetEnvironmentsOfWorkspaceQuery={useGetEnvironmentsOfWorkspaceQuery}
-              useUnassignEnvironmentFromWorkspaceMutation={
-                useUnassignEnvironmentFromWorkspaceMutation
-              }
-              useNotificationHandlers={useNotificationHandlers}
               isAssignedEnvironmentAllowed={isAssignEnvAllowed}
             />
           );
