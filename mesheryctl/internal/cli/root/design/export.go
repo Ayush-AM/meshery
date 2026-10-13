@@ -337,14 +337,23 @@ func selectPatternPrompt(patterns []models.MesheryPattern, baseURL string) (mode
 }
 
 func getUniqueFilename(filename string) string {
-	base, ext := filepath.Split(strings.TrimSuffix(filename, filepath.Ext(filename)))
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+
+	// Preserve multi-part extension for .tar.gz (original design type)
+	if strings.HasSuffix(base, ".tar") {
+		ext = ".tar" + ext
+		base = strings.TrimSuffix(base, ".tar")
+	}
+
+	candidate := filename
 	for i := 1; ; i++ {
-		if _, err := os.Stat(filename); os.IsNotExist(err) {
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
 			break
 		}
-		filename = fmt.Sprintf("%s(%d)%s", base, i, ext)
+		candidate = fmt.Sprintf("%s(%d)%s", base, i, ext)
 	}
-	return filename
+	return candidate
 }
 
 func init() {
